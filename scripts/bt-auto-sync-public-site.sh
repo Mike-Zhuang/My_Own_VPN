@@ -12,6 +12,8 @@ WEB_ROOT="${WEB_ROOT:-/www/wwwroot/chinavpn.mikezhuang.cn}"
 PUBLIC_DIR="${PUBLIC_DIR:-public}"
 LOCK_FILE="${LOCK_FILE:-/tmp/chinavpn-public-site-sync.lock}"
 GIT_TIMEOUT_SECONDS="${GIT_TIMEOUT_SECONDS:-45}"
+DEPLOY_PUBLIC_FILES="${DEPLOY_PUBLIC_FILES:-0}"
+PANEL_SERVICE="${PANEL_SERVICE:-wgdashboard}"
 REPO_CANDIDATES=(
   "https://gh-proxy.com/https://github.com/Mike-Zhuang/My_Own_VPN.git"
   "https://gitproxy.click/https://github.com/Mike-Zhuang/My_Own_VPN.git"
@@ -101,6 +103,11 @@ deployPublicFiles() {
   local sourceDir="${REPO_DIR}/${PUBLIC_DIR}"
   local commitHash
 
+  if [[ "$DEPLOY_PUBLIC_FILES" != "1" ]]; then
+    logInfo '当前使用 WGDashboard 自带前端，跳过静态公网文件同步。'
+    return 0
+  fi
+
   [[ -d "$sourceDir" ]] || fail "找不到公网目录：${sourceDir}"
   [[ -f "${sourceDir}/index.html" ]] || fail "找不到入口文件：${sourceDir}/index.html"
 
@@ -121,10 +128,10 @@ deployPublicFiles() {
 }
 
 restartPanelService() {
-  if systemctl list-unit-files chinavpn-panel.service >/dev/null 2>&1; then
-    logInfo '重启 chinavpn-panel 服务。'
-    systemctl restart chinavpn-panel
-    systemctl is-active chinavpn-panel
+  if systemctl list-unit-files "${PANEL_SERVICE}.service" >/dev/null 2>&1; then
+    logInfo "重启 ${PANEL_SERVICE} 服务。"
+    systemctl restart "$PANEL_SERVICE"
+    systemctl is-active "$PANEL_SERVICE"
   fi
 
   if command -v nginx >/dev/null 2>&1; then
@@ -141,6 +148,7 @@ main() {
   logInfo "仓库：${REPO_URL}"
   logInfo "分支：${BRANCH}"
   logInfo "网站目录：${WEB_ROOT}"
+  logInfo "面板服务：${PANEL_SERVICE}"
 
   requireCommand git
   requireCommand rsync
