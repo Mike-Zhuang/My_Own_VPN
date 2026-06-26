@@ -1,0 +1,44 @@
+# 本地交接与运维笔记，可能包含真实 IP、端口、服务拓扑等敏感信息。
+PLAN.md
+*.local.md
+notes/
+
+# 环境变量与密钥材料。
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
+*.pfx
+*.crt
+*.csr
+*.srl
+id_rsa*
+id_ed25519*
+
+# WireGuard / VPN 真实配置与生成产物。
+*.conf
+!*.conf.example
+client-configs/
+server-secrets/
+wg-generated/
+qr-codes/
+*.qr.png
+*-qr.png
+
+# 日志、备份与临时文件。
+*.log
+*.bak
+*.backup
+*.tmp
+*.swp
+.DS_Store
+
+# 常见依赖与构建缓存。
+node_modules/
+dist/
+build/
+.cache/
+.venv/
+__pycache__/
