@@ -6,11 +6,17 @@ readonly START_TIME="$(date +%s)"
 
 REPO_URL="${REPO_URL:-https://github.com/Mike-Zhuang/My_Own_VPN.git}"
 BRANCH="${BRANCH:-main}"
+REPO_MAIN_REF="${REPO_MAIN_REF:-refs/heads/main}"
 REPO_DIR="${REPO_DIR:-/opt/chinavpn-public-site}"
 WEB_ROOT="${WEB_ROOT:-/www/wwwroot/chinavpn.mikezhuang.cn}"
 PUBLIC_DIR="${PUBLIC_DIR:-public}"
 LOCK_FILE="${LOCK_FILE:-/tmp/chinavpn-public-site-sync.lock}"
 GIT_TIMEOUT_SECONDS="${GIT_TIMEOUT_SECONDS:-45}"
+REPO_CANDIDATES=(
+  "https://gh-proxy.com/https://github.com/Mike-Zhuang/My_Own_VPN.git"
+  "https://gitproxy.click/https://github.com/Mike-Zhuang/My_Own_VPN.git"
+  "$REPO_URL"
+)
 
 logInfo() {
   printf '[%s] [%s] %s\n' "$(date '+%F %T')" "$SCRIPT_NAME" "$1"
@@ -35,20 +41,47 @@ acquireLock() {
   fi
 }
 
+pickSource() {
+  local sourceUrl remoteHash
+
+  for sourceUrl in "${REPO_CANDIDATES[@]}"; do
+    remoteHash="$(timeout "${GIT_TIMEOUT_SECONDS}s" git ls-remote "$sourceUrl" "$REPO_MAIN_REF" 2>/dev/null | awk 'NR==1{print $1}')"
+    if [[ -n "$remoteHash" ]]; then
+      printf '%s|%s' "$sourceUrl" "$remoteHash"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
 prepareRepo() {
+  local picked sourceUrl remoteHash localHash fetchHash
+
+  picked="$(pickSource)" || fail '没有可用的 gitproxy/GitHub 源，拒绝同步。'
+  sourceUrl="${picked%%|*}"
+  remoteHash="${picked##*|}"
+  logInfo "Git 源：${sourceUrl}"
+  logInfo "远端版本：${remoteHash}"
+
   if [[ -d "${REPO_DIR}/.git" ]]; then
     logInfo "发现已有仓库：${REPO_DIR}"
-    if timeout "${GIT_TIMEOUT_SECONDS}s" git -C "$REPO_DIR" fetch --prune origin "$BRANCH"; then
-      git -C "$REPO_DIR" reset --hard "origin/${BRANCH}"
-    else
-      logInfo "Git 拉取超时或失败，使用当前本地副本继续同步。"
+    git config --global --add safe.directory "$REPO_DIR" >/dev/null 2>&1 || true
+    git -C "$REPO_DIR" remote set-url origin "$sourceUrl"
+    localHash="$(git -C "$REPO_DIR" rev-parse HEAD 2>/dev/null || true)"
+    timeout "${GIT_TIMEOUT_SECONDS}s" git -C "$REPO_DIR" fetch --depth 1 --prune origin "$BRANCH"
+    fetchHash="$(git -C "$REPO_DIR" rev-parse "origin/${BRANCH}")"
+    if [[ "$localHash" == "$fetchHash" ]]; then
+      logInfo "已是最新版本：${fetchHash}"
     fi
+    git -C "$REPO_DIR" checkout -B "$BRANCH" "origin/${BRANCH}"
+    git -C "$REPO_DIR" reset --hard "origin/${BRANCH}"
     git -C "$REPO_DIR" clean -fd
   else
     logInfo "首次克隆仓库到：${REPO_DIR}"
     rm -rf "$REPO_DIR"
     mkdir -p "$(dirname "$REPO_DIR")"
-    timeout "${GIT_TIMEOUT_SECONDS}s" git clone --depth 1 --branch "$BRANCH" "$REPO_URL" "$REPO_DIR"
+    timeout "${GIT_TIMEOUT_SECONDS}s" git clone --depth 1 --branch "$BRANCH" "$sourceUrl" "$REPO_DIR"
   fi
 }
 
@@ -85,6 +118,20 @@ deployPublicFiles() {
   logInfo "部署完成，当前 commit：${commitHash}"
 }
 
+restartPanelService() {
+  if systemctl list-unit-files chinavpn-panel.service >/dev/null 2>&1; then
+    logInfo '重启 chinavpn-panel 服务。'
+    systemctl restart chinavpn-panel
+    systemctl is-active chinavpn-panel
+  fi
+
+  if command -v nginx >/dev/null 2>&1; then
+    logInfo '校验 Nginx 配置。'
+    nginx -t
+    nginx -s reload || true
+  fi
+}
+
 main() {
   local duration
 
@@ -100,6 +147,7 @@ main() {
   prepareRepo
   runSafetyCheck
   deployPublicFiles
+  restartPanelService
 
   duration=$(( $(date +%s) - START_TIME ))
   logInfo "同步任务结束，耗时 ${duration}s。"
