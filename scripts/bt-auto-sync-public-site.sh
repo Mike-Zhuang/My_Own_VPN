@@ -10,6 +10,7 @@ REPO_DIR="${REPO_DIR:-/opt/chinavpn-public-site}"
 WEB_ROOT="${WEB_ROOT:-/www/wwwroot/chinavpn.mikezhuang.cn}"
 PUBLIC_DIR="${PUBLIC_DIR:-public}"
 LOCK_FILE="${LOCK_FILE:-/tmp/chinavpn-public-site-sync.lock}"
+GIT_TIMEOUT_SECONDS="${GIT_TIMEOUT_SECONDS:-45}"
 
 logInfo() {
   printf '[%s] [%s] %s\n' "$(date '+%F %T')" "$SCRIPT_NAME" "$1"
@@ -37,14 +38,17 @@ acquireLock() {
 prepareRepo() {
   if [[ -d "${REPO_DIR}/.git" ]]; then
     logInfo "发现已有仓库：${REPO_DIR}"
-    git -C "$REPO_DIR" fetch --prune origin "$BRANCH"
-    git -C "$REPO_DIR" reset --hard "origin/${BRANCH}"
+    if timeout "${GIT_TIMEOUT_SECONDS}s" git -C "$REPO_DIR" fetch --prune origin "$BRANCH"; then
+      git -C "$REPO_DIR" reset --hard "origin/${BRANCH}"
+    else
+      logInfo "Git 拉取超时或失败，使用当前本地副本继续同步。"
+    fi
     git -C "$REPO_DIR" clean -fd
   else
     logInfo "首次克隆仓库到：${REPO_DIR}"
     rm -rf "$REPO_DIR"
     mkdir -p "$(dirname "$REPO_DIR")"
-    git clone --depth 1 --branch "$BRANCH" "$REPO_URL" "$REPO_DIR"
+    timeout "${GIT_TIMEOUT_SECONDS}s" git clone --depth 1 --branch "$BRANCH" "$REPO_URL" "$REPO_DIR"
   fi
 }
 

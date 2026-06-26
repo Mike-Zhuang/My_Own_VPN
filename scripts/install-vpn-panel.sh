@@ -6,6 +6,8 @@ ENV_FILE="${ENV_FILE:-/etc/chinavpn-panel.env}"
 SERVICE_FILE="/etc/systemd/system/chinavpn-panel.service"
 NGINX_SITE="/www/server/panel/vhost/nginx/chinavpn.mikezhuang.cn.conf"
 PANEL_PORT="${PANEL_PORT:-18443}"
+SSL_CERT="${SSL_CERT:-/etc/letsencrypt/live/chinavpn.mikezhuang.cn/fullchain.pem}"
+SSL_KEY="${SSL_KEY:-/etc/letsencrypt/live/chinavpn.mikezhuang.cn/privkey.pem}"
 
 requireRoot() {
   if [[ "${EUID}" -ne 0 ]]; then
@@ -49,7 +51,51 @@ installNginx() {
   if [[ -f "$NGINX_SITE" ]]; then
     cp "$NGINX_SITE" "$backupPath"
   fi
-  cat > "$NGINX_SITE" <<EOF
+  if [[ -f "$SSL_CERT" && -f "$SSL_KEY" ]]; then
+    cat > "$NGINX_SITE" <<EOF
+server {
+    listen 80;
+    server_name chinavpn.mikezhuang.cn;
+
+    location ^~ /.well-known/acme-challenge/ {
+        root /www/wwwroot/chinavpn.mikezhuang.cn;
+        try_files \$uri =404;
+    }
+
+    location / {
+        return 301 https://\$host\$request_uri;
+    }
+
+    access_log /www/wwwlogs/chinavpn.mikezhuang.cn.log;
+    error_log /www/wwwlogs/chinavpn.mikezhuang.cn.error.log;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name chinavpn.mikezhuang.cn;
+
+    ssl_certificate ${SSL_CERT};
+    ssl_certificate_key ${SSL_KEY};
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+    ssl_prefer_server_ciphers on;
+
+    location / {
+        proxy_pass http://127.0.0.1:${PANEL_PORT};
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_read_timeout 60s;
+    }
+
+    access_log /www/wwwlogs/chinavpn.mikezhuang.cn.log;
+    error_log /www/wwwlogs/chinavpn.mikezhuang.cn.error.log;
+}
+EOF
+  else
+    cat > "$NGINX_SITE" <<EOF
 server {
     listen 80;
     server_name chinavpn.mikezhuang.cn;
@@ -73,6 +119,7 @@ server {
     error_log /www/wwwlogs/chinavpn.mikezhuang.cn.error.log;
 }
 EOF
+  fi
   nginx -t
   nginx -s reload
 }
