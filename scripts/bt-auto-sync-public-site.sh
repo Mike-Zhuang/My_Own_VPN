@@ -69,12 +69,14 @@ prepareRepo() {
     git config --global --add safe.directory "$REPO_DIR" >/dev/null 2>&1 || true
     git -C "$REPO_DIR" remote set-url origin "$sourceUrl"
     localHash="$(git -C "$REPO_DIR" rev-parse HEAD 2>/dev/null || true)"
+    git -C "$REPO_DIR" reset --hard HEAD
+    git -C "$REPO_DIR" clean -fd
     timeout "${GIT_TIMEOUT_SECONDS}s" git -C "$REPO_DIR" fetch --depth 1 --prune origin "$BRANCH"
     fetchHash="$(git -C "$REPO_DIR" rev-parse "origin/${BRANCH}")"
     if [[ "$localHash" == "$fetchHash" ]]; then
       logInfo "已是最新版本：${fetchHash}"
     fi
-    git -C "$REPO_DIR" checkout -B "$BRANCH" "origin/${BRANCH}"
+    git -C "$REPO_DIR" checkout -B "$BRANCH" "origin/${BRANCH}" --force
     git -C "$REPO_DIR" reset --hard "origin/${BRANCH}"
     git -C "$REPO_DIR" clean -fd
   else
