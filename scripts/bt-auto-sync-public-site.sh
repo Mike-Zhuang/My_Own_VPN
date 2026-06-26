@@ -17,6 +17,7 @@ DEPLOY_WGDASHBOARD="${DEPLOY_WGDASHBOARD:-1}"
 PANEL_SERVICE="${PANEL_SERVICE:-wgdashboard}"
 WGDASHBOARD_VENDOR_DIR="${WGDASHBOARD_VENDOR_DIR:-vendor/wgdashboard/src}"
 WGDASHBOARD_TARGET_DIR="${WGDASHBOARD_TARGET_DIR:-/opt/wgdashboard}"
+WGDASHBOARD_VENV_DIR="${WGDASHBOARD_VENV_DIR:-/opt/wgdashboard-venv}"
 WGDASHBOARD_STATE_DIR="${WGDASHBOARD_STATE_DIR:-/var/lib/chinavpn}"
 REPO_CANDIDATES=(
   "https://gh-proxy.com/https://github.com/Mike-Zhuang/My_Own_VPN.git"
@@ -206,6 +207,12 @@ deployWgdashboard() {
     --exclude='wg-dashboard-oidc-providers.json' \
     --exclude='static/dist/' \
     "${sourceDir}/" "${targetDir}/"
+
+  if [[ -d "$WGDASHBOARD_VENV_DIR" ]]; then
+    ln -sfn "$WGDASHBOARD_VENV_DIR" "${targetDir}/venv"
+  else
+    fail "找不到 WGDashboard venv：${WGDASHBOARD_VENV_DIR}"
+  fi
 
   buildFrontendIfNeeded "$targetDir"
 }
