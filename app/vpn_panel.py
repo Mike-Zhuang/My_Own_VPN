@@ -33,6 +33,7 @@ QR_DIR = DATA_DIR / "qr-codes"
 SESSION_TTL_SECONDS = 12 * 60 * 60
 OTP_TTL_SECONDS = 10 * 60
 OTP_VERIFIED_SECONDS = 10 * 60
+COOKIE_SECURE = os.getenv("VPN_PANEL_COOKIE_SECURE", "1") != "0"
 
 app = FastAPI()
 
@@ -113,7 +114,7 @@ def setSessionCookie(response: Response, session: Dict[str, int]) -> None:
         "vpn_panel_session",
         signValue(encoded),
         httponly=True,
-        secure=False,
+        secure=COOKIE_SECURE,
         samesite="lax",
         max_age=SESSION_TTL_SECONDS,
     )
