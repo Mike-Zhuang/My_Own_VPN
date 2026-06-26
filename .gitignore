@@ -42,3 +42,13 @@ build/
 .cache/
 .venv/
 __pycache__/
+
+# WGDashboard vendor 里的源码需要进 Git，但依赖、构建产物和运行时状态不能进。
+vendor/wgdashboard/**/node_modules/
+vendor/wgdashboard/src/db/
+vendor/wgdashboard/src/log/
+vendor/wgdashboard/src/venv/
+vendor/wgdashboard/src/gunicorn.pid
+vendor/wgdashboard/src/wg-dashboard.ini
+vendor/wgdashboard/src/wg-dashboard.ini.*
+vendor/wgdashboard/src/wg-dashboard-oidc-providers.json

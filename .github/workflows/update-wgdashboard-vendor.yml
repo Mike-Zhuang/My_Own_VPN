@@ -1,0 +1,64 @@
+name: Update WGDashboard Vendor
+
+on:
+  schedule:
+    - cron: '25 19 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update-wgdashboard:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Update vendored WGDashboard
+        run: ./scripts/update-wgdashboard-vendor.sh
+
+      - name: Stop when there is no upstream change
+        id: diff
+        run: |
+          if git diff --quiet -- vendor/wgdashboard vendor/wgdashboard.UPSTREAM_COMMIT vendor/wgdashboard.UPSTREAM_SOURCE; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run safety scan
+        if: steps.diff.outputs.changed == 'true'
+        run: ./scripts/check-secrets.sh
+
+      - name: Push update branch
+        if: steps.diff.outputs.changed == 'true'
+        env:
+          BRANCH_NAME: codex/update-wgdashboard-vendor
+        run: |
+          git checkout -B "$BRANCH_NAME"
+          git add vendor/wgdashboard vendor/wgdashboard.UPSTREAM_COMMIT vendor/wgdashboard.UPSTREAM_SOURCE
+          git commit -m "Update vendored WGDashboard"
+          git push --force-with-lease origin "$BRANCH_NAME"
+
+      - name: Open or update pull request
+        if: steps.diff.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH_NAME: codex/update-wgdashboard-vendor
+        run: |
+          title="Update vendored WGDashboard"
+          body=$'自动同步 WGDashboard 上游源码到 `vendor/wgdashboard`。\n\n合并后，宝塔计划任务会通过 gitproxy 拉取 `My_Own_VPN`，并把新版 WGDashboard 部署到服务器。'
+          if gh pr view "$BRANCH_NAME" --json number >/dev/null 2>&1; then
+            gh pr edit "$BRANCH_NAME" --title "$title" --body "$body"
+          else
+            gh pr create --base main --head "$BRANCH_NAME" --title "$title" --body "$body"
+          fi

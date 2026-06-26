@@ -13,7 +13,11 @@ PUBLIC_DIR="${PUBLIC_DIR:-public}"
 LOCK_FILE="${LOCK_FILE:-/tmp/chinavpn-public-site-sync.lock}"
 GIT_TIMEOUT_SECONDS="${GIT_TIMEOUT_SECONDS:-45}"
 DEPLOY_PUBLIC_FILES="${DEPLOY_PUBLIC_FILES:-0}"
+DEPLOY_WGDASHBOARD="${DEPLOY_WGDASHBOARD:-1}"
 PANEL_SERVICE="${PANEL_SERVICE:-wgdashboard}"
+WGDASHBOARD_VENDOR_DIR="${WGDASHBOARD_VENDOR_DIR:-vendor/wgdashboard/src}"
+WGDASHBOARD_TARGET_DIR="${WGDASHBOARD_TARGET_DIR:-/opt/wgdashboard}"
+WGDASHBOARD_STATE_DIR="${WGDASHBOARD_STATE_DIR:-/var/lib/chinavpn}"
 REPO_CANDIDATES=(
   "https://gh-proxy.com/https://github.com/Mike-Zhuang/My_Own_VPN.git"
   "https://gitproxy.click/https://github.com/Mike-Zhuang/My_Own_VPN.git"
@@ -127,6 +131,85 @@ deployPublicFiles() {
   logInfo "部署完成，当前 commit：${commitHash}"
 }
 
+hashDirectory() {
+  local directoryPath="$1"
+
+  [[ -d "$directoryPath" ]] || return 1
+  find "$directoryPath" -type f \
+    ! -path '*/node_modules/*' \
+    ! -path '*/dist/*' \
+    ! -path '*/.vite/*' \
+    -print0 \
+    | sort -z \
+    | xargs -0 sha256sum \
+    | sha256sum \
+    | awk '{print $1}'
+}
+
+buildFrontendIfNeeded() {
+  local sourceDir="$1"
+  local stateFile="${WGDASHBOARD_STATE_DIR}/frontend-source.sha256"
+  local currentHash previousHash
+
+  if ! command -v npm >/dev/null 2>&1; then
+    fail '需要构建 WGDashboard 前端，但服务器缺少 npm。'
+  fi
+
+  mkdir -p "$WGDASHBOARD_STATE_DIR"
+  currentHash="$(
+    {
+      hashDirectory "${sourceDir}/static/app"
+      hashDirectory "${sourceDir}/static/client"
+    } | sha256sum | awk '{print $1}'
+  )"
+  previousHash="$(cat "$stateFile" 2>/dev/null || true)"
+
+  if [[ "$currentHash" == "$previousHash" && -d "${sourceDir}/static/dist/WGDashboardAdmin" ]]; then
+    logInfo 'WGDashboard 前端源码无变化，跳过 build。'
+    return 0
+  fi
+
+  logInfo '构建 WGDashboard 管理端前端。'
+  (cd "${sourceDir}/static/app" && npm ci && npm run build)
+
+  logInfo '构建 WGDashboard Client 前端。'
+  (cd "${sourceDir}/static/client" && npm ci && npm run build)
+
+  printf '%s\n' "$currentHash" > "$stateFile"
+}
+
+deployWgdashboard() {
+  local sourceDir="${REPO_DIR}/${WGDASHBOARD_VENDOR_DIR}"
+  local targetDir="$WGDASHBOARD_TARGET_DIR"
+
+  if [[ "$DEPLOY_WGDASHBOARD" != "1" ]]; then
+    logInfo '跳过 WGDashboard vendor 部署。'
+    return 0
+  fi
+
+  [[ -d "$sourceDir" ]] || fail "找不到 WGDashboard vendor 源码：${sourceDir}"
+  [[ -f "${sourceDir}/dashboard.py" ]] || fail "找不到 WGDashboard 入口：${sourceDir}/dashboard.py"
+
+  mkdir -p "$targetDir"
+
+  logInfo "同步 WGDashboard 源码到 ${targetDir}/"
+  rsync -a --delete \
+    --exclude='db/' \
+    --exclude='log/' \
+    --exclude='venv/' \
+    --exclude='__pycache__/' \
+    --exclude='*.pyc' \
+    --exclude='node_modules/' \
+    --exclude='gunicorn.pid' \
+    --exclude='wg-dashboard.ini' \
+    --exclude='wg-dashboard.ini.*' \
+    --exclude='wg-dashboard-oidc-providers.json' \
+    --exclude='static/dist/' \
+    "${sourceDir}/" "${targetDir}/"
+
+  buildFrontendIfNeeded "$targetDir"
+}
+
 restartPanelService() {
   if systemctl list-unit-files "${PANEL_SERVICE}.service" >/dev/null 2>&1; then
     logInfo "重启 ${PANEL_SERVICE} 服务。"
@@ -149,6 +232,7 @@ main() {
   logInfo "分支：${BRANCH}"
   logInfo "网站目录：${WEB_ROOT}"
   logInfo "面板服务：${PANEL_SERVICE}"
+  logInfo "WGDashboard vendor 部署：${DEPLOY_WGDASHBOARD}"
 
   requireCommand git
   requireCommand rsync
@@ -157,6 +241,7 @@ main() {
   prepareRepo
   runSafetyCheck
   deployPublicFiles
+  deployWgdashboard
   restartPanelService
 
   duration=$(( $(date +%s) - START_TIME ))

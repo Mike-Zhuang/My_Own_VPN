@@ -58,6 +58,13 @@ scanFile() {
     return 1
   fi
 
+  # 第三方 vendor 源码会包含官方文档里的示例 IP；继续扫描密钥，但跳过公网 IP 脱敏检查。
+  case "$filePath" in
+    vendor/wgdashboard/*)
+      return 0
+      ;;
+  esac
+
   scanIpAddresses "$filePath"
 }
 
